@@ -5,17 +5,13 @@ pub mod strategy;
 pub mod twitter;
 pub mod database;
 
-use anyhow::Result;
 use dex::jupiter::JupiterDex;
-use market_data::birdeye::BirdEyeProvider;
-use market_data::{AggregatedDataProvider, DataProvider};
+use market_data::AggregatedDataProvider;
 use personality::StoicPersonality;
-use rig::agent::Agent;
 use rig::completion::CompletionModel;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::{signature::{Keypair, Signature}};
+use solana_sdk::signature::Keypair;
 use strategy::TradingStrategy;
-use tokio::sync::Mutex;
 use std::sync::Arc;
 
 pub struct SolanaTrader<M: CompletionModel> {

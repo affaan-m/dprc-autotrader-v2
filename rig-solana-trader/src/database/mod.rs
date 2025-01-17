@@ -2,7 +2,7 @@ pub mod sync;
 
 use anyhow::Result;
 use mongodb::{
-    bson::{doc, Document},
+    bson::Document,
     Client, Collection, Database as MongoDatabase,
 };
 use serde::{de::DeserializeOwned, Serialize};

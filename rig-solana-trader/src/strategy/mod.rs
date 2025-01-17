@@ -4,7 +4,6 @@ use rig::agent::Agent;
 use rig::completion::{CompletionModel, Prompt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::SystemTime;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TradeRecommendation {

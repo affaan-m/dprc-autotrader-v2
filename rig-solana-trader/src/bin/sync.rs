@@ -14,7 +14,7 @@ use rig_solana_trader::{
     strategy::TradingStrategy,
     dex::jupiter::JupiterDex,
 };
-use rig::agent::{Agent, AgentBuilder};
+use rig::agent::AgentBuilder;
 use rig::providers::openai::Client as OpenAIClient;
 
 #[tokio::main]

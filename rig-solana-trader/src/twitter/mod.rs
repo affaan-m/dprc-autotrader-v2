@@ -3,7 +3,6 @@ use reqwest::{Client, header};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, error};
 
 pub struct TwitterClient {
     client: Client,
