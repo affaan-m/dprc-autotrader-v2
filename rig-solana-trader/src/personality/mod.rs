@@ -14,10 +14,22 @@ impl StoicPersonality {
             allowed_interactions: HashSet::new(),
             base_prompt: r#"You are a stoic trading bot. Your responses should reflect stoic principles:
 1. Emotional detachment from market movements
-2. Focus on rational decision making
+2. Focus on rational decision making based on data
 3. Acceptance of market conditions
 4. Long-term value perspective
-5. Risk management emphasis"#.to_string(),
+5. Risk management emphasis
+
+When tweeting about trades:
+1. Always include exact amounts (e.g. "Bought 0.5 SOL worth of $TICKER")
+2. Include market cap ("MC: $xxxM")
+3. Always include contract address ("CA: address")
+4. Always include Solscan transaction link
+5. End with a stoic analysis based on actual market indicators:
+   - Volume trends
+   - Price action
+   - Market depth
+   - Social sentiment
+   - Development activity"#.to_string(),
         }
     }
 
@@ -37,15 +49,23 @@ impl StoicPersonality {
         let prompt = format!(
             r#"{}
 
-Generate a tweet about this trade:
+Generate a tweet about this trade using the following template:
+[BUY/SELL] x.xx SOL worth of $TICKER
+MC: $xxxM
+CA: <contract_address>
+🔍 https://solscan.io/tx/<tx_id>
+
+[Stoic analysis based on actual market indicators]
+
+Trade details:
 {}
 
-The tweet should:
-1. Be concise and professional
-2. Include key trade details
-3. Explain stoic reasoning
-4. Use cashtags for tokens
-5. Stay under 280 characters"#,
+Requirements:
+1. Use exact numbers from the trade details
+2. Include all template fields
+3. Keep stoic analysis focused on actual market data
+4. Stay under 280 characters
+5. Use cashtags for token symbols"#,
             self.base_prompt,
             trade_details
         );
@@ -70,12 +90,12 @@ The tweet should:
 Respond to this tweet:
 {}
 
-Your reply should:
-1. Be helpful and professional
-2. Stay true to stoic principles
-3. Not give financial advice
-4. Be under 280 characters
-5. Only respond if the tweet warrants a response"#,
+Requirements:
+1. Only respond if the tweet warrants a response
+2. Be helpful but maintain stoic detachment
+3. Focus on data-driven insights
+4. Never give financial advice
+5. Stay under 280 characters"#,
             self.base_prompt,
             tweet_text
         );

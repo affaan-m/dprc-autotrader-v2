@@ -61,7 +61,7 @@ pub struct SocialMetrics {
 }
 
 #[async_trait]
-pub trait DataProvider: Send + Sync {
+pub trait DataProvider: Send + Sync + std::fmt::Debug {
     async fn get_token_metadata(&self, token_address: &str) -> Result<TokenMetadata>;
     async fn get_trending_tokens(&self, limit: usize) -> Result<Vec<MarketTrend>>;
     async fn get_historical_prices(&self, address: &str) -> Result<Vec<PricePoint>>;
@@ -69,6 +69,7 @@ pub trait DataProvider: Send + Sync {
     async fn get_social_metrics(&self, address: &str) -> Result<SocialMetrics>;
 }
 
+#[derive(Debug)]
 pub struct AggregatedDataProvider {
     providers: Vec<Arc<dyn DataProvider>>,
     cache: Arc<RwLock<DataCache>>,

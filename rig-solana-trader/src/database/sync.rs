@@ -1,19 +1,16 @@
-use anyhow::Result;
-use chrono::{DateTime, Utc};
-use mongodb::bson::doc;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tracing::info;
-use tracing::warn;
-
+use crate::personality::StoicPersonality;
 use crate::market_data::{DataProvider, MarketTrend};
 use crate::twitter::TwitterClient;
-use crate::strategy::{TradingStrategy, TradeAction, TradeRecommendation};
+use crate::strategy::{TradeAction, TradeRecommendation, TradingStrategy};
 use crate::dex::jupiter::JupiterDex;
-use crate::StoicPersonality;
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use mongodb::{Database, bson::doc};
+use serde::{Serialize, Deserialize};
+use std::sync::Arc;
+use tracing::{info, warn};
 use rig::completion::CompletionModel;
 use solana_sdk::signature::Keypair;
-use super::Database;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenState {
@@ -31,27 +28,27 @@ pub struct TokenState {
 
 pub struct DataSyncService<M: CompletionModel> {
     db: Arc<Database>,
-    data_provider: Arc<dyn DataProvider>,
-    twitter: Arc<TwitterClient>,
+    data_provider: Box<dyn DataProvider>,
+    twitter: TwitterClient,
     trading_strategy: TradingStrategy<M>,
     dex: JupiterDex,
     personality: StoicPersonality,
-    wallet: Arc<Keypair>,
+    wallet: Keypair,
     sync_interval: u64,
 }
 
 impl<M: CompletionModel> DataSyncService<M> {
     pub fn new(
-        db: Arc<Database>,
-        data_provider: Arc<dyn DataProvider>,
-        twitter: Arc<TwitterClient>,
+        db: Database,
+        data_provider: Box<dyn DataProvider>,
+        twitter: TwitterClient,
         trading_strategy: TradingStrategy<M>,
         dex: JupiterDex,
-        wallet: Arc<Keypair>,
+        wallet: Keypair,
         sync_interval: u64,
     ) -> Self {
         Self {
-            db,
+            db: Arc::new(db),
             data_provider,
             twitter,
             trading_strategy,
@@ -93,7 +90,7 @@ impl<M: CompletionModel> DataSyncService<M> {
 
             let state = self.market_trend_to_token_state(trend.clone());
             info!("Inserting token state into MongoDB");
-            self.db.insert_one("token_states", state).await?;
+            self.db.collection("token_states").insert_one(state, None).await?;
 
             // Format market data for LLM analysis
             let prompt = format!(
@@ -107,7 +104,7 @@ impl<M: CompletionModel> DataSyncService<M> {
 
             // Analyze trading opportunity
             info!("Analyzing trading opportunity with LLM");
-            if let Ok(analysis) = self.trading_strategy.analyze_trading_opportunity(&prompt).await {
+            if let Ok(analysis) = self.trading_strategy.analyze_trading_opportunity(&prompt, 1.0).await {
                 // Parse the analysis into a trade recommendation
                 if let Ok(trade) = serde_json::from_str::<TradeRecommendation>(&analysis) {
                     info!(
@@ -134,11 +131,37 @@ impl<M: CompletionModel> DataSyncService<M> {
                                     info!("Generating tweet for successful buy");
                                     let tweet = self.personality.generate_trade_tweet(
                                         &self.trading_strategy.agent,
-                                        &format!("Buy {} SOL worth of {} at ${:.4}\nSignature: {}", 
+                                        &format!(
+                                            "Action: Buy
+Amount: {} SOL
+Token: {}
+Price: ${:.4}
+Market Cap: ${:.2}M
+24h Volume: ${:.2}M
+24h Change: {:.2}%
+Contract: {}
+Transaction: {}
+Analysis: {}
+Risk Assessment: {}
+Market Analysis:
+- Volume: {}
+- Price Trend: {}
+- Liquidity: {}
+- Momentum: {}",
                                             trade.amount_in_sol,
                                             trend.metadata.symbol,
                                             trend.metadata.price_usd,
-                                            signature
+                                            trend.metadata.market_cap / 1_000_000.0,
+                                            trend.metadata.volume_24h / 1_000_000.0,
+                                            trend.price_change_24h,
+                                            trend.token_address,
+                                            signature,
+                                            trade.reasoning,
+                                            trade.risk_assessment,
+                                            trade.market_analysis.volume_analysis,
+                                            trade.market_analysis.price_trend,
+                                            trade.market_analysis.liquidity_assessment,
+                                            trade.market_analysis.momentum_indicators
                                         ),
                                     ).await?;
                                     
@@ -166,11 +189,37 @@ impl<M: CompletionModel> DataSyncService<M> {
                                     info!("Generating tweet for successful sell");
                                     let tweet = self.personality.generate_trade_tweet(
                                         &self.trading_strategy.agent,
-                                        &format!("Sell {} SOL worth of {} at ${:.4}\nSignature: {}", 
+                                        &format!(
+                                            "Action: Sell
+Amount: {} SOL
+Token: {}
+Price: ${:.4}
+Market Cap: ${:.2}M
+24h Volume: ${:.2}M
+24h Change: {:.2}%
+Contract: {}
+Transaction: {}
+Analysis: {}
+Risk Assessment: {}
+Market Analysis:
+- Volume: {}
+- Price Trend: {}
+- Liquidity: {}
+- Momentum: {}",
                                             trade.amount_in_sol,
                                             trend.metadata.symbol,
                                             trend.metadata.price_usd,
-                                            signature
+                                            trend.metadata.market_cap / 1_000_000.0,
+                                            trend.metadata.volume_24h / 1_000_000.0,
+                                            trend.price_change_24h,
+                                            trend.token_address,
+                                            signature,
+                                            trade.reasoning,
+                                            trade.risk_assessment,
+                                            trade.market_analysis.volume_analysis,
+                                            trade.market_analysis.price_trend,
+                                            trade.market_analysis.liquidity_assessment,
+                                            trade.market_analysis.momentum_indicators
                                         ),
                                     ).await?;
                                     

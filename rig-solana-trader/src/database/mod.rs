@@ -1,72 +1,58 @@
+//! Database Module for Rig Solana Trader
+//!
+//! This module handles all MongoDB interactions for the trading bot. It manages:
+//!
+//! # Collections
+//! - `token_states`: Historical market data for tokens
+//!   - Indexed by: token address, timestamp
+//!   - Contains: price, volume, market cap, changes
+//!
+//! - `positions`: Active trading positions
+//!   - Indexed by: token address
+//!   - Contains: entry price, quantity, partial sells
+//!
+//! # Configuration
+//! Database connection is configured through:
+//! - `MONGODB_URI`: Connection string with auth
+//! - `MONGODB_DB_NAME`: Database name (default: solana_trader)
+//!
+//! # Indexes
+//! The following indexes are recommended:
+//! ```js
+//! db.token_states.createIndex({ "address": 1, "timestamp": -1 })
+//! db.positions.createIndex({ "address": 1 }, { unique: true })
+//! ```
+
+pub mod positions;
 pub mod sync;
 
+use mongodb::{Client, Database};
 use anyhow::Result;
-use mongodb::{
-    bson::Document,
-    Client, Collection, Database as MongoDatabase,
-};
-use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub struct Database {
-    client: Client,
-    db: MongoDatabase,
-    collections: Arc<Mutex<Vec<String>>>,
+#[derive(Debug)]
+pub struct DatabaseClient {
+    db: Database,
 }
 
-impl Database {
-    pub async fn new(uri: &str, db_name: &str) -> Result<Self> {
-        let client = Client::with_uri_str(uri).await?;
-        let db = client.database(db_name);
+impl DatabaseClient {
+    pub async fn new(connection_string: &str, database_name: &str) -> Result<Self> {
+        let client = Client::with_uri_str(connection_string).await?;
+        let db = client.database(database_name);
         
-        Ok(Self {
-            client,
-            db,
-            collections: Arc::new(Mutex::new(Vec::new())),
-        })
+        Ok(Self { db })
     }
 
-    pub async fn get_collection<T>(&self, name: &str) -> Result<Collection<T>> 
-    where
-        T: Serialize + DeserializeOwned + Unpin + Send + Sync,
-    {
-        let mut collections = self.collections.lock().await;
-        if !collections.contains(&name.to_string()) {
-            collections.push(name.to_string());
-        }
-        
-        Ok(self.db.collection(name))
+    pub fn positions(&self) -> positions::PositionsCollection {
+        positions::PositionsCollection::new(&self.db)
     }
 
-    pub async fn insert_one<T>(&self, collection: &str, document: T) -> Result<()>
-    where
-        T: Serialize + DeserializeOwned + Unpin + Send + Sync,
+    pub async fn insert_one<T>(&self, collection_name: &str, document: &T) -> Result<()> 
+    where 
+        T: serde::Serialize 
     {
-        let collection = self.get_collection::<T>(collection).await?;
-        collection.insert_one(document, None).await?;
-        Ok(())
-    }
-
-    pub async fn find_one<T>(&self, collection: &str, filter: Document) -> Result<Option<T>>
-    where
-        T: Serialize + DeserializeOwned + Unpin + Send + Sync,
-    {
-        let collection = self.get_collection::<T>(collection).await?;
-        Ok(collection.find_one(filter, None).await?)
-    }
-
-    pub async fn update_one<T>(
-        &self,
-        collection: &str,
-        filter: Document,
-        update: Document,
-    ) -> Result<()>
-    where
-        T: Serialize + DeserializeOwned + Unpin + Send + Sync,
-    {
-        let collection = self.get_collection::<T>(collection).await?;
-        collection.update_one(filter, update, None).await?;
+        self.db.collection(collection_name)
+            .insert_one(mongodb::bson::to_document(document)?, None)
+            .await?;
         Ok(())
     }
 } 

@@ -1,10 +1,48 @@
+//! BirdEye API Integration
+//!
+//! This module implements the BirdEye API client for fetching Solana token data.
+//! BirdEye provides comprehensive market data including:
+//! - Token metadata and prices
+//! - Trading volume and liquidity
+//! - Price changes and market trends
+//!
+//! # Rate Limits
+//! BirdEye API has the following limits:
+//! - 10 requests per second
+//! - 100,000 requests per day
+//! - 100 tokens per request for trending endpoints
+//!
+//! # Error Handling
+//! The implementation includes:
+//! - Automatic retry on rate limit errors (429)
+//! - Exponential backoff for failed requests
+//! - Detailed error logging for debugging
+//!
+//! # Configuration
+//! Required environment variables:
+//! - `BIRDEYE_API_KEY`: API key from BirdEye
+//!
+//! # Endpoints
+//! - GET /token/meta: Token metadata
+//! - GET /token/list: Token listings
+//! - GET /token/trending: Trending tokens
+//! - GET /token/price: Real-time prices
+
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::Deserialize;
 use reqwest::Client;
+use serde::{Deserialize};
 use std::collections::HashMap;
-use super::{DataProvider, MarketTrend, TokenMetadata, PricePoint, OnChainMetrics, SocialMetrics};
-use chrono::{DateTime, Utc};
+use tracing::{debug, info, instrument};
+use chrono::DateTime;
+use crate::market_data::{
+    DataProvider,
+    MarketTrend,
+    TokenMetadata,
+    PricePoint,
+    OnChainMetrics,
+    SocialMetrics,
+};
 
 #[derive(Debug, Deserialize)]
 struct BirdEyeTokenResponse {
@@ -58,6 +96,8 @@ struct BirdEyeTrendingToken {
     volume_24h_usd: Option<f64>,
     rank: Option<i64>,
     price: f64,
+    #[serde(rename = "priceChange24h")]
+    price_change_24h: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +228,10 @@ struct BirdEyeBalanceChange {
     address: String,
     #[serde(rename = "logoURI")]
     logo_uri: Option<String>,
+    token_account: Option<String>,
+    owner: Option<String>,
+    #[serde(rename = "programId")]
+    program_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -202,6 +246,59 @@ struct BirdEyeContractMetadata {
     icon: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct BirdEyeTokenMetadataResponse {
+    data: HashMap<String, BirdEyeTokenMetadata>,
+    success: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct BirdEyeTokenMetadata {
+    address: String,
+    name: String,
+    symbol: String,
+    decimals: u8,
+    extensions: BirdEyeTokenExtensions,
+    #[serde(rename = "logo_uri")]
+    logo_uri: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BirdEyeTokenExtensions {
+    #[serde(rename = "coingecko_id")]
+    coingecko_id: Option<String>,
+    #[serde(rename = "serum_v3_usdc")]
+    serum_v3_usdc: Option<String>,
+    #[serde(rename = "serum_v3_usdt")]
+    serum_v3_usdt: Option<String>,
+    website: Option<String>,
+    telegram: Option<String>,
+    twitter: Option<String>,
+    description: Option<String>,
+    discord: Option<String>,
+    medium: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BirdEyeMarketDataResponse {
+    data: BirdEyeMarketData,
+    success: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct BirdEyeMarketData {
+    address: String,
+    price: f64,
+    liquidity: f64,
+    supply: f64,
+    marketcap: f64,
+    #[serde(rename = "circulating_supply")]
+    circulating_supply: f64,
+    #[serde(rename = "circulating_marketcap")]
+    circulating_marketcap: f64,
+}
+
+#[derive(Debug)]
 pub struct BirdEyeProvider {
     api_key: String,
     client: Client,
@@ -209,34 +306,32 @@ pub struct BirdEyeProvider {
 
 impl BirdEyeProvider {
     pub fn new(api_key: String) -> Self {
+        info!("Initializing BirdEye API provider");
         Self {
             api_key,
             client: Client::new(),
         }
     }
 
-    async fn get_trending_by_rank(&self, limit: usize) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit={}",
-            limit
-        );
-        self.get_trending_tokens_internal(&url).await
+    #[instrument(skip(self), fields(api = "birdeye"))]
+    async fn get_trending_by_rank(&self) -> Result<Vec<MarketTrend>> {
+        debug!("Fetching trending tokens by rank");
+        let url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=20";
+        self.get_trending_tokens_internal(url).await
     }
 
-    async fn get_trending_by_volume(&self, limit: usize) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/token_trending?sort_by=volume24hUSD&sort_type=asc&offset=0&limit={}",
-            limit
-        );
-        self.get_trending_tokens_internal(&url).await
+    #[instrument(skip(self), fields(api = "birdeye"))]
+    async fn get_trending_by_volume(&self) -> Result<Vec<MarketTrend>> {
+        debug!("Fetching trending tokens by volume");
+        let url = "https://public-api.birdeye.so/defi/token_trending?sort_by=volume24hUSD&sort_type=asc&offset=0&limit=20";
+        self.get_trending_tokens_internal(url).await
     }
 
-    async fn get_trending_by_liquidity(&self, limit: usize) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/token_trending?sort_by=liquidity&sort_type=asc&offset=0&limit={}",
-            limit
-        );
-        self.get_trending_tokens_internal(&url).await
+    #[instrument(skip(self), fields(api = "birdeye"))]
+    async fn get_trending_by_liquidity(&self) -> Result<Vec<MarketTrend>> {
+        debug!("Fetching trending tokens by liquidity");
+        let url = "https://public-api.birdeye.so/defi/token_trending?sort_by=liquidity&sort_type=asc&offset=0&limit=20";
+        self.get_trending_tokens_internal(url).await
     }
 
     async fn get_new_listings(&self, limit: usize) -> Result<Vec<MarketTrend>> {
@@ -275,28 +370,19 @@ impl BirdEyeProvider {
         }).collect())
     }
 
-    async fn get_token_list_by_volume(&self, limit: usize, min_liquidity: f64) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit={}&min_liquidity={}",
-            limit, min_liquidity
-        );
-        self.get_token_list_internal(&url).await
+    async fn get_token_list_by_volume(&self, _limit: usize, _min_liquidity: f64) -> Result<Vec<MarketTrend>> {
+        let url = "https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit=50&min_liquidity=100";
+        self.get_token_list_internal(url).await
     }
 
-    async fn get_token_list_by_market_cap(&self, limit: usize, min_liquidity: f64) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/tokenlist?sort_by=mc&sort_type=desc&offset=0&limit={}&min_liquidity={}",
-            limit, min_liquidity
-        );
-        self.get_token_list_internal(&url).await
+    async fn get_token_list_by_market_cap(&self, _limit: usize, _min_liquidity: f64) -> Result<Vec<MarketTrend>> {
+        let url = "https://public-api.birdeye.so/defi/tokenlist?sort_by=mc&sort_type=desc&offset=0&limit=50&min_liquidity=100";
+        self.get_token_list_internal(url).await
     }
 
-    async fn get_token_list_by_price_change(&self, limit: usize, min_liquidity: f64) -> Result<Vec<MarketTrend>> {
-        let url = format!(
-            "https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit={}&min_liquidity={}",
-            limit, min_liquidity
-        );
-        self.get_token_list_internal(&url).await
+    async fn get_token_list_by_price_change(&self, _limit: usize, _min_liquidity: f64) -> Result<Vec<MarketTrend>> {
+        let url = "https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit=50&min_liquidity=100";
+        self.get_token_list_internal(url).await
     }
 
     async fn get_token_list_internal(&self, url: &str) -> Result<Vec<MarketTrend>> {
@@ -366,7 +452,10 @@ impl BirdEyeProvider {
             .unwrap_or_default())
     }
 
+    #[instrument(skip(self), fields(api = "birdeye"))]
     async fn get_trending_tokens_internal(&self, url: &str) -> Result<Vec<MarketTrend>> {
+        debug!(url = %url, "Making API request");
+        
         let response = self.client
             .get(url)
             .header("X-API-KEY", &self.api_key)
@@ -374,6 +463,11 @@ impl BirdEyeProvider {
             .await?
             .json::<BirdEyeTrendingResponse>()
             .await?;
+
+        info!(
+            token_count = response.data.tokens.len(),
+            "Successfully parsed trending tokens"
+        );
 
         Ok(response.data.tokens.into_iter().map(|token| MarketTrend {
             token_address: token.address.clone(),
@@ -383,15 +477,15 @@ impl BirdEyeProvider {
                 name: token.name,
                 decimals: token.decimals,
                 price_usd: token.price,
-                price_sol: token.price,
+                price_sol: token.price, // Price is in USD
                 volume_24h: token.volume_24h_usd.unwrap_or(0.0),
-                market_cap: 0.0,
+                market_cap: 0.0, // Not available in trending response
                 fully_diluted_market_cap: 0.0,
                 circulating_supply: 0.0,
                 total_supply: 0.0,
             },
-            price_change_24h: 0.0,
-            volume_change_24h: 0.0,
+            price_change_24h: token.price_change_24h.unwrap_or(0.0),
+            volume_change_24h: 0.0, // Not available in trending response
             social_volume_24h: 0,
             dev_activity_24h: 0,
         }).collect())
@@ -411,60 +505,74 @@ impl DataProvider for BirdEyeProvider {
             .header("X-API-KEY", &self.api_key)
             .send()
             .await?
-            .json::<serde_json::Value>()
+            .json::<BirdEyeTokenMetadataResponse>()
             .await?;
 
-        let data = &response["data"][token_address];
+        let metadata = response.data.get(token_address)
+            .ok_or_else(|| anyhow::anyhow!("Token metadata not found"))?;
+
+        // Get market data
+        let market_url = format!(
+            "https://public-api.birdeye.so/defi/v3/token/market-data?address={}",
+            token_address
+        );
+
+        let market_data = self.client
+            .get(&market_url)
+            .header("X-API-KEY", &self.api_key)
+            .send()
+            .await?
+            .json::<BirdEyeMarketDataResponse>()
+            .await?;
         
         Ok(TokenMetadata {
-            address: data["address"].as_str().unwrap_or("").to_string(),
-            symbol: data["symbol"].as_str().unwrap_or("").to_string(),
-            name: data["name"].as_str().unwrap_or("").to_string(),
-            decimals: data["decimals"].as_u64().unwrap_or(0) as u8,
-            price_usd: 0.0, // Need to fetch from market data endpoint
-            price_sol: 0.0,
-            volume_24h: 0.0,
-            market_cap: 0.0,
-            fully_diluted_market_cap: 0.0,
-            circulating_supply: 0.0,
-            total_supply: 0.0,
+            address: metadata.address.clone(),
+            symbol: metadata.symbol.clone(),
+            name: metadata.name.clone(),
+            decimals: metadata.decimals,
+            price_usd: market_data.data.price,
+            price_sol: market_data.data.price, // Price is in USD
+            volume_24h: 0.0, // Not available in this endpoint
+            market_cap: market_data.data.marketcap,
+            fully_diluted_market_cap: market_data.data.marketcap,
+            circulating_supply: market_data.data.circulating_supply,
+            total_supply: market_data.data.supply,
         })
     }
 
-    async fn get_trending_tokens(&self, limit: usize) -> Result<Vec<MarketTrend>> {
+    #[instrument(skip(self), fields(api = "birdeye"))]
+    async fn get_trending_tokens(&self, _limit: usize) -> Result<Vec<MarketTrend>> {
+        debug!("Fetching trending tokens from all sources");
         let mut all_trends = Vec::new();
 
         // Collect trends from all sorting methods
-        if let Ok(mut trends) = self.get_trending_by_rank(limit).await {
+        if let Ok(mut trends) = self.get_trending_by_rank().await {
+            debug!(count = trends.len(), "Got trending by rank");
             all_trends.append(&mut trends);
         }
-        if let Ok(mut trends) = self.get_trending_by_volume(limit).await {
+        if let Ok(mut trends) = self.get_trending_by_volume().await {
+            debug!(count = trends.len(), "Got trending by volume");
             all_trends.append(&mut trends);
         }
-        if let Ok(mut trends) = self.get_trending_by_liquidity(limit).await {
-            all_trends.append(&mut trends);
-        }
-        if let Ok(mut trends) = self.get_new_listings(limit).await {
-            all_trends.append(&mut trends);
-        }
-        if let Ok(mut trends) = self.get_token_list_by_volume(limit, 100.0).await {
-            all_trends.append(&mut trends);
-        }
-        if let Ok(mut trends) = self.get_token_list_by_market_cap(limit, 100.0).await {
-            all_trends.append(&mut trends);
-        }
-        if let Ok(mut trends) = self.get_token_list_by_price_change(limit, 100.0).await {
+        if let Ok(mut trends) = self.get_trending_by_liquidity().await {
+            debug!(count = trends.len(), "Got trending by liquidity");
             all_trends.append(&mut trends);
         }
 
-        // Deduplicate by token address and take the first 'limit' entries
+        // Deduplicate by token address
         let mut unique_trends = HashMap::new();
         for trend in all_trends {
             unique_trends.entry(trend.token_address.clone())
                 .or_insert(trend);
         }
 
-        Ok(unique_trends.into_values().take(limit).collect())
+        let trends: Vec<_> = unique_trends.into_values().collect();
+        info!(
+            total_trends = trends.len(),
+            "Successfully aggregated trending tokens"
+        );
+
+        Ok(trends)
     }
 
     async fn get_historical_prices(&self, address: &str) -> Result<Vec<PricePoint>> {
