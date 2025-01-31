@@ -27,18 +27,23 @@
 //! - Trading cooldown periods
 
 pub mod llm;
+pub mod technical;
+pub mod risk;
+pub mod execution;
 
-use crate::market_data::TokenMetadata;
+use crate::market_data::{EnhancedTokenMetadata, FeatureVector, MacroIndicator};
 use anyhow::Result;
 use rig::agent::Agent;
 use rig::completion::{CompletionModel, Prompt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::Utc;
+use crate::analysis::Analysis;
+use solana_sdk::nonce::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortfolioPosition {
-    pub token: TokenMetadata,
+    pub token: EnhancedTokenMetadata,
     pub quantity: f64,
     pub cost_basis_sol: f64,
     pub entry_timestamp: i64,
@@ -55,186 +60,251 @@ pub struct PartialSell {
     pub tx_signature: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TradeRecommendation {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TradingDecision {
     pub token_address: String,
     pub action: TradeAction,
-    pub amount_in_sol: f64,
-    pub reasoning: String,
+    pub size_in_sol: f64,
     pub confidence: f64,
-    pub risk_assessment: String,
-    pub market_analysis: MarketAnalysis,
+    pub reasoning: String,
+    pub risk_score: f64,
+    pub technical_signals: TechnicalSignals,
+    pub market_context: MarketContext,
+    pub execution_params: ExecutionParams,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MarketAnalysis {
-    pub volume_analysis: String,
-    pub price_trend: String,
-    pub liquidity_assessment: String,
-    pub momentum_indicators: String,
-    pub risk_factors: Vec<String>,
-    pub opportunity_factors: Vec<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TechnicalSignals {
+    pub trend_strength: f64,
+    pub momentum_score: f64,
+    pub volatility_score: f64,
+    pub support_resistance: Vec<f64>,
+    pub signal_type: String,
+    pub timeframe: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketContext {
+    pub market_trend: String,
+    pub sector_performance: f64,
+    pub liquidity_score: f64,
+    pub volume_profile: String,
+    pub sentiment_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionParams {
+    pub entry_type: String,
+    pub time_horizon: String,
+    pub stop_loss: f64,
+    pub take_profit: Vec<f64>,
+    pub max_slippage: f64,
+    pub dca_config: Option<DCAConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DCAConfig {
+    pub num_entries: u32,
+    pub time_between_entries: u32,
+    pub size_per_entry: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TradeAction {
     Buy,
     Sell,
-    Hold,
+    Hold
 }
 
 pub struct TradingStrategy<M: CompletionModel> {
-    pub agent: Agent<M>,
+    agent: Agent<M>,
+    risk_manager: risk::RiskManager,
+    technical_analyzer: technical::TechnicalAnalyzer,
+    execution_engine: execution::ExecutionEngine,
     portfolio: HashMap<String, PortfolioPosition>,
-    max_position_sol: f64,
-    min_position_sol: f64,
-    recently_purchased: HashMap<String, i64>, // token_address -> timestamp
+    config: StrategyConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct StrategyConfig {
+    pub max_position_sol: f64,
+    pub min_position_sol: f64,
+    pub max_tokens: u32,
+    pub min_confidence: f64,
+    pub min_liquidity_usd: f64,
+    pub max_slippage: f64,
 }
 
 impl<M: CompletionModel> TradingStrategy<M> {
-    pub fn new(agent: Agent<M>, max_position_sol: f64, min_position_sol: f64) -> Self {
+    pub fn new(
+        agent: Agent<M>,
+        config: StrategyConfig,
+    ) -> Self {
         Self {
             agent,
+            risk_manager: risk::RiskManager::new(config.clone()),
+            technical_analyzer: technical::TechnicalAnalyzer::new(),
+            execution_engine: execution::ExecutionEngine::new(config.max_slippage),
             portfolio: HashMap::new(),
-            max_position_sol,
-            min_position_sol,
-            recently_purchased: HashMap::new(),
+            config,
         }
     }
 
-    pub async fn analyze_trading_opportunity(&self, prompt: &String, sol_balance: f64) -> Result<String> {
-        let formatted_prompt = format!(
-            r#"You are a seasoned crypto trading expert focused on Solana ecosystem tokens. Analyze opportunities and provide recommendations in valid JSON format.
+    pub async fn analyze_opportunity(
+        &self,
+        token: &EnhancedTokenMetadata,
+        features: &FeatureVector,
+        macro_indicators: &MacroIndicator,
+    ) -> Result<TradingDecision> {
+        // 1. Technical Analysis
+        let technical_signals = self.technical_analyzer.analyze(token).await?;
 
-Key Trading Rules:
-1. Input token MUST be SOL (address: "So11111111111111111111111111111111111111112")
-2. Output token MUST NOT be SOL
-3. Maximum trade size: {:.4} SOL (20% of current balance {:.4} SOL)
-4. Minimum trade size: 0.1 SOL
-5. No meme coins or tokens with less than 1 week of trading history
-6. Require minimum $50k daily volume and $500k market cap
+        // 2. Market Context Analysis
+        let market_context = self.analyze_market_context(token, macro_indicators).await?;
 
-Market Analysis Requirements:
-1. Volume Analysis:
-   - 24h volume vs 7-day average
-   - Large wallet transaction patterns
-   - Buy/sell ratio in last 24h
-   - Whale accumulation signals
-   - Volume concentration (DEX distribution)
+        // 3. Risk Assessment
+        let risk_score = self.risk_manager.assess_risk(token, &technical_signals, &market_context).await?;
 
-2. Price Action:
-   - Key support/resistance levels
-   - Moving averages (15m, 1h, 4h, 1d)
-   - Bollinger bands breakouts
-   - RSI divergences
-   - MACD crossovers
+        // 4. LLM-based Analysis
+        let llm_analysis = self.perform_llm_analysis(
+            token,
+            features,
+            &technical_signals,
+            &market_context,
+            risk_score,
+        ).await?;
 
-3. Liquidity Analysis:
-   - DEX liquidity depth ($100k+ preferred)
-   - Liquidity provider concentration
-   - Recent liquidity changes
-   - Slippage impact on $1k, $5k, $10k trades
-   - Liquidity lockup periods
+        // 5. Final Decision Making
+        let decision = self.make_decision(
+            token,
+            llm_analysis,
+            risk_score,
+            &technical_signals,
+            &market_context,
+        ).await?;
 
-4. Project Fundamentals:
-   - Development activity (GitHub/commits)
-   - Team background and track record
-   - Recent partnerships/integrations
-   - Token utility and use cases
-   - Community growth metrics
+        Ok(decision)
+    }
 
-5. Risk Assessment:
-   - Smart contract audits
-   - Team token vesting/unlocks
-   - Insider wallet movements
-   - Competition analysis
-   - Regulatory compliance
+    async fn analyze_market_context(
+        &self,
+        token: &EnhancedTokenMetadata,
+        macro_indicators: &MacroIndicator,
+    ) -> Result<MarketContext> {
+        Ok(MarketContext {
+            market_trend: macro_indicators.market_trend.clone(),
+            sector_performance: 0.0, // TODO: Implement sector analysis
+            liquidity_score: token.liquidity_usd / token.market_cap,
+            volume_profile: if token.volume_change_24h > 50.0 { "High".to_string() } else { "Normal".to_string() },
+            sentiment_score: token.social_sentiment.unwrap_or(0.0),
+        })
+    }
 
-Confidence Score Guidelines:
-0.1-0.3: New tokens, limited history
-0.3-0.5: Established but uncertain trend
-0.5-0.7: Good fundamentals, needs more signals
-0.7-0.8: Strong buy with multiple confirmations
-0.8-0.9: High conviction setup (rare)
-0.9+: Reserved for exceptional opportunities
+    async fn perform_llm_analysis(
+        &self,
+        token: &EnhancedTokenMetadata,
+        features: &FeatureVector,
+        technical_signals: &TechnicalSignals,
+        market_context: &MarketContext,
+        risk_score: f64,
+    ) -> Result<String> {
+        let prompt = format!(
+            r#"Analyze trading opportunity for token {}.
+Technical Signals:
+- Trend Strength: {:.2}
+- Momentum Score: {:.2}
+- Volatility Score: {:.2}
+- Signal Type: {}
 
-JSON Response Format:
-{{
-    "token_address": "string",
-    "action": "Buy" | "Sell" | "Hold",
-    "amount_in_sol": number,
-    "reasoning": "string",
-    "confidence": number between 0.0 and 1.0,
-    "risk_assessment": "string",
-    "market_analysis": {{
-        "volume_analysis": "string",
-        "price_trend": "string",
-        "liquidity_assessment": "string",
-        "momentum_indicators": "string",
-        "risk_factors": ["string"],
-        "opportunity_factors": ["string"]
-    }}
-}}
+Market Context:
+- Market Trend: {}
+- Liquidity Score: {:.2}
+- Volume Profile: {}
+- Sentiment Score: {:.2}
 
-Buy Signal Requirements:
-1. Confidence > 0.7 AND
-2. 24h volume > $50k AND
-3. Liquidity depth > $100k AND
-4. At least 3 bullish technical indicators AND
-5. No major risk factors
+Risk Score: {:.2}
 
-Trading opportunity details:
-{}"#,
-            sol_balance * 0.20,
-            sol_balance,
-            prompt
+Additional Metrics:
+- Price Change 24h: {:.2}%
+- Volume Change 24h: {:.2}%
+- Liquidity Change 24h: {:.2}%
+
+Provide trading analysis and recommendation in a concise format."#,
+            token.symbol,
+            technical_signals.trend_strength,
+            technical_signals.momentum_score,
+            technical_signals.volatility_score,
+            technical_signals.signal_type,
+            market_context.market_trend,
+            market_context.liquidity_score,
+            market_context.volume_profile,
+            market_context.sentiment_score,
+            risk_score,
+            token.price_change_24h,
+            token.volume_change_24h,
+            token.liquidity_change_24h,
         );
 
-        let response = self.agent.prompt(&formatted_prompt).await?;
+        let response = self.agent.prompt(&prompt).await?;
         Ok(response.to_string())
     }
 
-    pub async fn evaluate_sell_opportunity(
+    async fn make_decision(
         &self,
-        position: &PortfolioPosition,
-        current_price_sol: f64,
-    ) -> Result<Option<TradeRecommendation>> {
-        let profit_loss = (current_price_sol - position.cost_basis_sol) / position.cost_basis_sol * 100.0;
-        let partial_sells = position.partial_sells.len();
-
-        // Implement tiered take-profit and stop-loss logic
-        let (action, amount) = match (profit_loss, partial_sells) {
-            (loss, _) if loss <= -50.0 => (TradeAction::Sell, position.quantity), // Stop loss
-            (profit, 0) if profit >= 100.0 => (TradeAction::Sell, position.quantity * 0.5), // First take profit
-            (profit, 1) if profit >= 200.0 => (TradeAction::Sell, position.quantity * 0.25), // Second take profit
-            (profit, 2) if profit >= 400.0 => (TradeAction::Sell, position.quantity * 0.15), // Third take profit
-            (profit, 3) if profit >= 800.0 => (TradeAction::Sell, position.quantity * 0.1), // Fourth take profit
-            _ => (TradeAction::Hold, 0.0),
+        token: &EnhancedTokenMetadata,
+        llm_analysis: String,
+        risk_score: f64,
+        technical_signals: &TechnicalSignals,
+        market_context: &MarketContext,
+    ) -> Result<TradingDecision> {
+        let action = if risk_score > 0.7 && technical_signals.trend_strength > 0.6 {
+            TradeAction::Buy
+        } else if risk_score < 0.3 || technical_signals.trend_strength < 0.2 {
+            TradeAction::Sell
+        } else {
+            TradeAction::Hold
         };
 
-        if matches!(action, TradeAction::Hold) {
-            return Ok(None);
-        }
+        let size = self.calculate_position_size(risk_score, technical_signals.trend_strength);
 
-        Ok(Some(TradeRecommendation {
-            token_address: position.token.address.clone(),
+        Ok(TradingDecision {
+            token_address: token.address.clone(),
             action,
-            amount_in_sol: amount * current_price_sol,
-            reasoning: format!("Taking profit at {:.1}% gain", profit_loss),
-            confidence: 0.9,
-            risk_assessment: "Profit target reached".to_string(),
-            market_analysis: MarketAnalysis {
-                volume_analysis: "".to_string(),
-                price_trend: "".to_string(),
-                liquidity_assessment: "".to_string(),
-                momentum_indicators: "".to_string(),
-                risk_factors: Vec::new(),
-                opportunity_factors: Vec::new(),
-            },
-        }))
+            size_in_sol: size,
+            confidence: technical_signals.trend_strength * (1.0 - risk_score),
+            reasoning: llm_analysis,
+            risk_score,
+            technical_signals: technical_signals.clone(),
+            market_context: market_context.clone(),
+            execution_params: self.generate_execution_params(technical_signals, risk_score),
+        })
     }
 
-    pub fn update_portfolio(&mut self, token: TokenMetadata, quantity: f64, cost_basis_sol: f64) {
+    fn calculate_position_size(&self, risk_score: f64, trend_strength: f64) -> f64 {
+        let base_size = self.config.max_position_sol * 0.2;
+        let risk_multiplier = 1.0 - risk_score;
+        let trend_multiplier = trend_strength;
+        
+        (base_size * risk_multiplier * trend_multiplier)
+            .max(self.config.min_position_sol)
+            .min(self.config.max_position_sol)
+    }
+
+    fn generate_execution_params(&self, signals: &TechnicalSignals, risk_score: f64) -> ExecutionParams {
+        let stop_loss = if risk_score > 0.7 { 0.05 } else { 0.1 };
+        let take_profits = vec![0.1, 0.2, 0.3];
+
+        ExecutionParams {
+            entry_type: "Market".to_string(),
+            time_horizon: signals.timeframe.clone(),
+            stop_loss,
+            take_profit: take_profits,
+            max_slippage: self.config.max_slippage,
+            dca_config: None,
+        }
+    }
+
+    pub fn update_portfolio(&mut self, token: EnhancedTokenMetadata, quantity: f64, cost_basis_sol: f64) {
         let now = Utc::now().timestamp();
         let token_address = token.address.clone();
         self.portfolio.insert(
@@ -248,7 +318,6 @@ Trading opportunity details:
                 mongodb_id: None,
             },
         );
-        self.recently_purchased.insert(token_address, now);
     }
 
     pub fn record_partial_sell(
@@ -270,15 +339,6 @@ Trading opportunity details:
         position.quantity -= quantity;
 
         Ok(())
-    }
-
-    pub fn was_recently_purchased(&self, token_address: &str) -> bool {
-        if let Some(timestamp) = self.recently_purchased.get(token_address) {
-            let now = Utc::now().timestamp();
-            now - timestamp < 3600 * 24 // 24 hour cooldown
-        } else {
-            false
-        }
     }
 }
 
