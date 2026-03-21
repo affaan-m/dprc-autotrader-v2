@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "generatedBy": "ecc-tools",
+  "profile": "full",
+  "sharedSkills": [
+    ".claude/skills/dprc-autotrader-v2/SKILL.md",
+    ".agents/skills/dprc-autotrader-v2/SKILL.md"
+  ],
+  "commandFiles": [
+    ".claude/commands/feature-development.md",
+    ".claude/commands/refactoring.md",
+    ".claude/commands/dependency-bump-cargo-workspace.md"
+  ],
+  "updatedAt": "2026-03-21T09:16:00.298Z"
+}
