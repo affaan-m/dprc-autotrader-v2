@@ -1,0 +1,281 @@
+# Instincts generated from https://github.com/affaan-m/dprc-autotrader-v2
+# Generated: 2026-03-21T09:16:18.492Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: dprc-autotrader-v2-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Commit Length
+
+## Action
+
+Keep commit messages concise (~45 characters)
+
+## Evidence
+
+- Average commit message length: 45 chars
+- Based on 357 commits
+
+---
+id: dprc-autotrader-v2-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: dprc-autotrader-v2-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: dprc-autotrader-v2-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: dprc-autotrader-v2-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: dprc-autotrader-v2-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~14x per month
+- Files: **/*.test.*
+
+---
+id: dprc-autotrader-v2-workflow-refactoring
+trigger: "when refactoring code"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Refactoring
+
+## Action
+
+Follow the refactoring workflow:
+1. Ensure tests pass before refactor
+2. Refactor code structure
+3. Verify tests still pass
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: src/**/*
+
+---
+id: dprc-autotrader-v2-workflow-dependency-bump-cargo-workspace
+trigger: "when doing dependency bump cargo workspace"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Dependency Bump Cargo Workspace
+
+## Action
+
+Follow the dependency-bump-cargo-workspace workflow:
+1. Update version numbers in Cargo.toml files for affected crates.
+2. Regenerate Cargo.lock to reflect new dependency versions.
+3. Commit changes to all updated Cargo.toml and Cargo.lock files.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: Cargo.toml, Cargo.lock, rig-core/Cargo.toml
+
+---
+id: dprc-autotrader-v2-workflow-release-version-workspace
+trigger: "when doing release version workspace"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Release Version Workspace
+
+## Action
+
+Follow the release-version-workspace workflow:
+1. Update version numbers in Cargo.toml for all workspace crates.
+2. Update CHANGELOG.md for each crate to reflect new changes.
+3. Update Cargo.lock to match new versions.
+4. Commit all version and changelog updates together.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: Cargo.lock, rig-core/CHANGELOG.md, rig-core/Cargo.toml
+
+---
+id: dprc-autotrader-v2-workflow-add-or-update-integration-test-for-vector-store
+trigger: "when doing add or update integration test for vector store"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Add Or Update Integration Test For Vector Store
+
+## Action
+
+Follow the add-or-update-integration-test-for-vector-store workflow:
+1. Create or update integration test file in tests/integration_tests.rs.
+2. Update or add example files demonstrating usage.
+3. Modify src/lib.rs or related implementation files as needed.
+4. Update Cargo.toml to include new dependencies or features for testing.
+5. Commit all related changes together.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: rig-mongodb/tests/integration_tests.rs, rig-mongodb/examples/vector_search_mongodb.rs, rig-mongodb/src/lib.rs
+
+---
+id: dprc-autotrader-v2-workflow-add-new-vector-store-backend
+trigger: "when doing add new vector store backend"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Add New Vector Store Backend
+
+## Action
+
+Follow the add-new-vector-store-backend workflow:
+1. Create new crate directory (e.g., rig-sqlite/).
+2. Add src/lib.rs with implementation.
+3. Add README.md and LICENSE.
+4. Add example files demonstrating usage.
+5. Update workspace Cargo.toml and Cargo.lock.
+6. Add integration tests.
+7. Commit all new files and updates.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: rig-sqlite/Cargo.toml, rig-sqlite/LICENSE, rig-sqlite/README.md
+
+---
+id: dprc-autotrader-v2-workflow-docs-readme-or-example-update
+trigger: "when doing docs readme or example update"
+confidence: 0.65
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/affaan-m/dprc-autotrader-v2
+---
+
+# Dprc Autotrader V2 Workflow Docs Readme Or Example Update
+
+## Action
+
+Follow the docs-readme-or-example-update workflow:
+1. Edit README.md or crate-specific README.md files.
+2. Edit or add example files in examples/ directory.
+3. Commit documentation changes (sometimes with code changes).
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~3x per month
+- Files: README.md, rig-core/README.md, rig-core/examples/*.rs
+
