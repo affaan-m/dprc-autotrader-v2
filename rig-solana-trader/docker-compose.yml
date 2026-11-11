@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=solanatrader
+      - MONGO_INITDB_ROOT_PASSWORD=tradingbot123
+      - MONGO_INITDB_DATABASE=solana_trader
+    command: mongod --auth
+    restart: unless-stopped
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=solanatrader
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=tradingbot123
+      - ME_CONFIG_MONGODB_URL=mongodb://solanatrader:tradingbot123@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=pass123
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+volumes:
+  mongodb_data: 
